@@ -1,0 +1,57 @@
+{
+    "folder": "_folder",
+    "fileExtensions": {
+        "sqf": "_sqf",
+        "sqm": "_code",
+        "ext": "_ext"
+    },
+
+    "light": {
+        "fileExtensions": {
+            "ini": "_sqf"
+        }
+    },
+
+
+    "fonts": [
+        {
+          "id": "squif-font",
+          "src": [
+            {
+              "path": "./Squif.woff",
+              "format": "woff"
+            }
+          ],
+          "weight": "normal",
+          "style": "normal",
+          "size": "100%"
+        }
+      ],
+      "iconDefinitions": {
+        "_sqf": {
+          "fontCharacter": "A",
+          "fontColor": "#fff",
+          "fontId": "squif-font",
+          "fontSize": "130%"
+        },
+        "_code": {
+            "fontCharacter": "B",
+            "fontColor": "#fff",
+            "fontId": "squif-font",
+            "fontSize": "90%"
+        },        
+        "_ext": {
+            "fontCharacter": "H",
+            "fontColor": "#fff",
+            "fontId": "squif-font",
+            "fontSize": "80%"
+        },        
+        "_folder": {
+            "fontCharacter": "D",
+            "fontColor": "#fff",
+            "fontId": "squif-font",
+            "fontSize": "100%"
+        }
+      }
+
+}
