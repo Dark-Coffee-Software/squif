@@ -88,15 +88,19 @@ export function activate(context: vscode.ExtensionContext) {
 		}
 
 		let files:string[] = [];
-		let funcFiles:string[] = [];
+		let funcFiles:any[] = [];
 		let cppFiles:any[] = [];
 		let hppFiles:any[] = [];
 
 		let registeredClasses:any = [];
 		
-		walk(folder?.uri.fsPath + "\\a3modules", (err, result) =>
+		console.log("Walking...");
+
+		walk(moduleFolder, (err, result) =>
 		{
 			files = result ?? [];
+			
+			console.log("Found " + result?.length);
 			
 			files.forEach((val, ind) => 
 			{
@@ -110,9 +114,14 @@ export function activate(context: vscode.ExtensionContext) {
 					// This is an HPP file. Proceed
 					hppFiles.push(val.replace("\\\\", "\\") );
 				}
+				if(val.endsWith(".sqf") && path.basename(val).startsWith("fnc_"))
+				{
+					// This is an Function file. Proceed
+					funcFiles.push(val.replace("\\\\", "\\") );
+				}
 			});
 			
-			vscode.window.showInformationMessage('Found ' + funcFiles.length + ' valid Files.'  );
+			vscode.window.showInformationMessage('Found ' + funcFiles.length + ' function Files.'  );
 			
 			if(cppFiles.length > 0)
 			{
@@ -174,6 +183,115 @@ export function activate(context: vscode.ExtensionContext) {
 
 				});
 			}	
+
+			if(hppFiles.length > 0)
+			{
+				hppFiles.forEach((v, i) => {
+
+					var content = fs.readFileSync(path.normalize(hppFiles[i]), {encoding:'utf8', flag:'r'});
+
+					var classObj:any = {
+						name: "",
+						fileDir: "",
+						classes: []
+					};
+		
+					let funcCont = scrapeFunctions( content )?.groups?.Functions;			
+					if(funcCont !== undefined)
+					{
+						classObj.name = getClass(funcCont)?.Class ?? "";
+		
+						let classCont = scrapeUserFunc( funcCont )?.groups?.Classes;		
+						if(classCont !== undefined)
+						{
+							let cl:any = {};
+		
+							cl.name = getClass(classCont)?.Class ?? "";
+							let subClassCont = scrapeUserFunc( classCont )?.groups?.Classes;
+							cl.classes = subClassCont;
+							
+							if(subClassCont !== undefined)
+							{
+								let clsses = extractClasses(subClassCont);
+
+								if(clsses.length > 0)
+								{
+									clsses.forEach( (fv:any, fi:any) =>
+									{
+										try
+										{
+											let cls:any = {
+												name: fv
+											};
+											console.log("Looping: " + fv);
+											let fnFileName = "fn_" + fv + ".sqf";
+											var fileContents = fs.readFileSync(path.normalize(path.dirname(hppFiles[i]) + "\\functions\\" + fnFileName), {encoding:'utf8', flag:'r'}) ?? "";
+											cls.comments = getComments(fileContents)?.Comments;
+											classObj.classes.push(cls);
+										}
+										catch(ex)
+										{
+											let e:Error = ex;
+											console.log(e.message);											
+										}
+									});
+								}
+							}
+						}
+					}
+		
+					registeredClasses.push(classObj);
+
+				});
+			}	
+
+			funcFiles.forEach( (fv:any, fi:any) =>
+			{
+				let classObj:any = {
+					classes: []
+				};
+				try
+				{
+					console.log("Looping: " + fv);
+					let fnFileName = path.basename(fv).split(".")[0];
+					var fileContents = fs.readFileSync(path.normalize(fv), {encoding:'utf8', flag:'r'}) ?? "";
+					let comments = getComments(fileContents)?.Comments;
+					
+
+					vscode.languages.registerCompletionItemProvider('sqf', {
+						provideCompletionItems(document, pos, token, ctx){
+							let comp = new vscode.CompletionItem(fnFileName, vscode.CompletionItemKind.Function);
+							return [
+								comp
+								];
+							}
+						},
+						fnFileName
+					);
+
+					vscode.languages.registerHoverProvider('sqf',
+					{
+						provideHover(document, pos, token)
+						{
+							const range = document.getWordRangeAtPosition(pos);
+            				const word = document.getText(range);
+							if(word === fnFileName)
+							{
+								return {
+									contents: [fnFileName, comments ?? ""]
+								};
+							}
+						}
+					});
+					
+				}
+				catch(ex)
+				{
+					let e:Error = ex;
+					console.log(e.message);											
+				}
+				
+			});
 
 			registeredClasses.forEach((v: any, i: any) =>
 			{

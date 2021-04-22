@@ -66,8 +66,10 @@ function activate(context) {
         let cppFiles = [];
         let hppFiles = [];
         let registeredClasses = [];
-        walk((folder === null || folder === void 0 ? void 0 : folder.uri.fsPath) + "\\a3modules", (err, result) => {
+        console.log("Walking...");
+        walk(moduleFolder, (err, result) => {
             files = result !== null && result !== void 0 ? result : [];
+            console.log("Found " + (result === null || result === void 0 ? void 0 : result.length));
             files.forEach((val, ind) => {
                 if (val.endsWith(".cpp")) {
                     // This is an CPP file. Proceed
@@ -77,8 +79,12 @@ function activate(context) {
                     // This is an HPP file. Proceed
                     hppFiles.push(val.replace("\\\\", "\\"));
                 }
+                if (val.endsWith(".sqf") && path.basename(val).startsWith("fnc_")) {
+                    // This is an Function file. Proceed
+                    funcFiles.push(val.replace("\\\\", "\\"));
+                }
             });
-            vscode.window.showInformationMessage('Found ' + funcFiles.length + ' valid Files.');
+            vscode.window.showInformationMessage('Found ' + funcFiles.length + ' function Files.');
             if (cppFiles.length > 0) {
                 cppFiles.forEach((v, i) => {
                     var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
@@ -124,6 +130,86 @@ function activate(context) {
                     registeredClasses.push(classObj);
                 });
             }
+            if (hppFiles.length > 0) {
+                hppFiles.forEach((v, i) => {
+                    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+                    var content = fs.readFileSync(path.normalize(hppFiles[i]), { encoding: 'utf8', flag: 'r' });
+                    var classObj = {
+                        name: "",
+                        fileDir: "",
+                        classes: []
+                    };
+                    let funcCont = (_b = (_a = scrapeFunctions(content)) === null || _a === void 0 ? void 0 : _a.groups) === null || _b === void 0 ? void 0 : _b.Functions;
+                    if (funcCont !== undefined) {
+                        classObj.name = (_d = (_c = getClass(funcCont)) === null || _c === void 0 ? void 0 : _c.Class) !== null && _d !== void 0 ? _d : "";
+                        let classCont = (_f = (_e = scrapeUserFunc(funcCont)) === null || _e === void 0 ? void 0 : _e.groups) === null || _f === void 0 ? void 0 : _f.Classes;
+                        if (classCont !== undefined) {
+                            let cl = {};
+                            cl.name = (_h = (_g = getClass(classCont)) === null || _g === void 0 ? void 0 : _g.Class) !== null && _h !== void 0 ? _h : "";
+                            let subClassCont = (_k = (_j = scrapeUserFunc(classCont)) === null || _j === void 0 ? void 0 : _j.groups) === null || _k === void 0 ? void 0 : _k.Classes;
+                            cl.classes = subClassCont;
+                            if (subClassCont !== undefined) {
+                                let clsses = extractClasses(subClassCont);
+                                if (clsses.length > 0) {
+                                    clsses.forEach((fv, fi) => {
+                                        var _a, _b;
+                                        try {
+                                            let cls = {
+                                                name: fv
+                                            };
+                                            console.log("Looping: " + fv);
+                                            let fnFileName = "fn_" + fv + ".sqf";
+                                            var fileContents = (_a = fs.readFileSync(path.normalize(path.dirname(hppFiles[i]) + "\\functions\\" + fnFileName), { encoding: 'utf8', flag: 'r' })) !== null && _a !== void 0 ? _a : "";
+                                            cls.comments = (_b = getComments(fileContents)) === null || _b === void 0 ? void 0 : _b.Comments;
+                                            classObj.classes.push(cls);
+                                        }
+                                        catch (ex) {
+                                            let e = ex;
+                                            console.log(e.message);
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    registeredClasses.push(classObj);
+                });
+            }
+            funcFiles.forEach((fv, fi) => {
+                var _a, _b;
+                let classObj = {
+                    classes: []
+                };
+                try {
+                    console.log("Looping: " + fv);
+                    let fnFileName = path.basename(fv).split(".")[0];
+                    var fileContents = (_a = fs.readFileSync(path.normalize(fv), { encoding: 'utf8', flag: 'r' })) !== null && _a !== void 0 ? _a : "";
+                    let comments = (_b = getComments(fileContents)) === null || _b === void 0 ? void 0 : _b.Comments;
+                    vscode.languages.registerCompletionItemProvider('sqf', {
+                        provideCompletionItems(document, pos, token, ctx) {
+                            let comp = new vscode.CompletionItem(fnFileName, vscode.CompletionItemKind.Function);
+                            return [
+                                comp
+                            ];
+                        }
+                    }, fnFileName);
+                    vscode.languages.registerHoverProvider('sqf', {
+                        provideHover(document, pos, token) {
+                            const range = document.getWordRangeAtPosition(pos);
+                            const word = document.getText(range);
+                            if (word === fnFileName) {
+                                return {
+                                    contents: [fnFileName, comments !== null && comments !== void 0 ? comments : ""]
+                                };
+                            }
+                        }
+                    });
+                }
+                catch (ex) {
+                    let e = ex;
+                    console.log(e.message);
+                }
+            });
             registeredClasses.forEach((v, i) => {
                 v.classes.forEach((vc, ic) => {
                     let autoComp = v.name + "_fnc_" + vc.name;
