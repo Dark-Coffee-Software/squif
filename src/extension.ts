@@ -3,9 +3,8 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as XRegExp from 'xregexp';
-import { SSL_OP_NO_SESSION_RESUMPTION_ON_RENEGOTIATION } from 'node:constants';
-XRegExp.install('namespacing');
+import axios from 'axios';
+import * as https from "https";
 
 
 // this method is called when your extension is activated
@@ -16,29 +15,14 @@ export function activate(context: vscode.ExtensionContext) {
 	// This line of code will only be executed once when your extension is activated
 	console.log('Congratulations, your extension "squif" is now active!');
 
-	let disposable = vscode.commands.registerCommand('squif.test', () => {
-		// The code you place here will be executed every time your command is executed
-
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Squif enabled: v' +  require('../package.json').version );
-	});
-
-
 	let checker = vscode.commands.registerCommand('squif.checker', () => {
 				
-		vscode.window.showInformationMessage('Checking A3_Modules Folder...' );
-
 		let folders = vscode.workspace.workspaceFolders;
 		let folder = folders !== undefined ? folders[0] : undefined;
 
-		if(! fs.existsSync(folder?.uri.fsPath + "\\.squif.jsonc"))
+		if(! fs.existsSync(folder?.uri.fsPath + "\\squif.jsonc"))
 		{
-			vscode.window.showWarningMessage('No Modules config found.\nCreating... '  );
-			fs.writeFileSync(path.normalize(folder?.uri.fsPath + "\\.squif.jsonc"), `
-{
-	"module_dir": "\\a3modules" 
-	// Use \\ for local to this folder, otherwise give the absolute path (i.e. C:\\path\\to\\mod\\source\\dir)
-}`);
+			vscode.window.showWarningMessage('No Squif config found.'  );
 			return;
 		}
 
@@ -46,414 +30,153 @@ export function activate(context: vscode.ExtensionContext) {
 
 		try
 		{			
-			config = JSON.parse(fs.readFileSync(path.normalize(folder?.uri.fsPath + "\\.squif.jsonc"), 'utf8'));
+			config = JSON.parse(fs.readFileSync(path.normalize(folder?.uri.fsPath + "\\squif.jsonc"), 'utf8'));
 		}
 		catch(ex)
 		{
-			let e:Error = ex;
-			vscode.window.showErrorMessage("Error in confing .squif.jsonc:\n" + e.message);
+			var e = ex;
+			vscode.window.showErrorMessage("Error in confing .squif.jsonc:");
 			return;
 		}
 
-		if(config.module_dir === undefined)
-		{
-			vscode.window.showErrorMessage("Error in confing .squif - No module path set");
-		}
-
-		let moduleFolder = "";
-
-		// Check if the Module Dir should be local or absolute
-		if(config.module_dir.startsWith("\\"))
-		{
-			moduleFolder = folder?.uri.fsPath + config.module_dir;
+		if(config.projects == null || config.projects == [])
+		{			
+			vscode.window.showErrorMessage("No projects were found in your config. Please add one.");
 		}
 		else
 		{
-			moduleFolder = config.module_dir;
-		}
-
-		// Check if the defined Module Directory exists
-		if(! fs.existsSync(moduleFolder))
-		{
-
-			vscode.window.showErrorMessage('Error locating\n"' + moduleFolder + '".'  );
-			vscode.window.showErrorMessage('No Modules folder found! Please ensure you have set a valid path on the config file!".'  );
-			return;
-		}
-
-
-		if(folder === null)
-		{
-			return;
-		}
-
-		let files:string[] = [];
-		let funcFiles:any[] = [];
-		let cppFiles:any[] = [];
-		let hppFiles:any[] = [];
-
-		let registeredClasses:any = [];
-		
-		console.log("Walking...");
-
-		walk(moduleFolder, (err, result) =>
-		{
-			files = result ?? [];
-			
-			console.log("Found " + result?.length);
-			
-			files.forEach((val, ind) => 
-			{
-				if(val.endsWith(".cpp"))
-				{
-					// This is an CPP file. Proceed
-					cppFiles.push(val.replace("\\\\", "\\"));
-				}
-				if(val.endsWith(".hpp"))
-				{
-					// This is an HPP file. Proceed
-					hppFiles.push(val.replace("\\\\", "\\") );
-				}
-				if(val.endsWith(".sqf") && path.basename(val).startsWith("fnc_"))
-				{
-					// This is an Function file. Proceed
-					funcFiles.push(val.replace("\\\\", "\\") );
-				}
-			});
-			
-			vscode.window.showInformationMessage('Found ' + funcFiles.length + ' function Files.'  );
-			
-			if(cppFiles.length > 0)
-			{
-				cppFiles.forEach((v, i) => {
-
-					var content = fs.readFileSync(path.normalize(cppFiles[i]), {encoding:'utf8', flag:'r'});
-
-					var classObj:any = {
-						name: "",
-						fileDir: "",
-						classes: []
-					};
-		
-					let funcCont = scrapeFunctions( content )?.groups?.Functions;			
-					if(funcCont !== undefined)
-					{
-						classObj.name = getClass(funcCont)?.Class ?? "";
-		
-						let classCont = scrapeUserFunc( funcCont )?.groups?.Classes;		
-						if(classCont !== undefined)
-						{
-							let cl:any = {};
-		
-							cl.name = getClass(classCont)?.Class ?? "";
-							let subClassCont = scrapeUserFunc( classCont )?.groups?.Classes;
-							cl.classes = subClassCont;
-							
-							if(subClassCont !== undefined)
-							{
-								let clsses = extractClasses(subClassCont);
-
-								if(clsses.length > 0)
-								{
-									clsses.forEach( (fv:any, fi:any) =>
-									{
-										try
-										{
-											let cls:any = {
-												name: fv
-											};
-											console.log("Looping: " + fv);
-											let fnFileName = "fn_" + fv + ".sqf";
-											var fileContents = fs.readFileSync(path.normalize(path.dirname(cppFiles[i]) + "\\functions\\" + fnFileName), {encoding:'utf8', flag:'r'}) ?? "";
-											cls.comments = getComments(fileContents)?.Comments;
-											classObj.classes.push(cls);
-										}
-										catch(ex)
-										{
-											let e:Error = ex;
-											console.log(e.message);											
-										}
-									});
-								}
-							}
-						}
-					}
-		
-					registeredClasses.push(classObj);
-
-				});
-			}	
-
-			if(hppFiles.length > 0)
-			{
-				hppFiles.forEach((v, i) => {
-
-					var content = fs.readFileSync(path.normalize(hppFiles[i]), {encoding:'utf8', flag:'r'});
-
-					var classObj:any = {
-						name: "",
-						fileDir: "",
-						classes: []
-					};
-		
-					let funcCont = scrapeFunctions( content )?.groups?.Functions;			
-					if(funcCont !== undefined)
-					{
-						classObj.name = getClass(funcCont)?.Class ?? "";
-		
-						let classCont = scrapeUserFunc( funcCont )?.groups?.Classes;		
-						if(classCont !== undefined)
-						{
-							let cl:any = {};
-		
-							cl.name = getClass(classCont)?.Class ?? "";
-							let subClassCont = scrapeUserFunc( classCont )?.groups?.Classes;
-							cl.classes = subClassCont;
-							
-							if(subClassCont !== undefined)
-							{
-								let clsses = extractClasses(subClassCont);
-
-								if(clsses.length > 0)
-								{
-									clsses.forEach( (fv:any, fi:any) =>
-									{
-										try
-										{
-											let cls:any = {
-												name: fv
-											};
-											console.log("Looping: " + fv);
-											let fnFileName = "fn_" + fv + ".sqf";
-											var fileContents = fs.readFileSync(path.normalize(path.dirname(hppFiles[i]) + "\\functions\\" + fnFileName), {encoding:'utf8', flag:'r'}) ?? "";
-											cls.comments = getComments(fileContents)?.Comments;
-											classObj.classes.push(cls);
-										}
-										catch(ex)
-										{
-											let e:Error = ex;
-											console.log(e.message);											
-										}
-									});
-								}
-							}
-						}
-					}
-		
-					registeredClasses.push(classObj);
-
-				});
-			}	
-
-			funcFiles.forEach( (fv:any, fi:any) =>
-			{
-				let classObj:any = {
-					classes: []
-				};
-				try
-				{
-					console.log("Looping: " + fv);
-					let fnFileName = path.basename(fv).split(".")[0];
-					var fileContents = fs.readFileSync(path.normalize(fv), {encoding:'utf8', flag:'r'}) ?? "";
-					let comments = getComments(fileContents)?.Comments;
-					
-
-					vscode.languages.registerCompletionItemProvider('sqf', {
-						provideCompletionItems(document, pos, token, ctx){
-							let comp = new vscode.CompletionItem(fnFileName, vscode.CompletionItemKind.Function);
-							return [
-								comp
-								];
-							}
-						},
-						fnFileName
-					);
-
-					vscode.languages.registerHoverProvider('sqf',
-					{
-						provideHover(document, pos, token)
-						{
-							const range = document.getWordRangeAtPosition(pos);
-            				const word = document.getText(range);
-							if(word === fnFileName)
-							{
-								return {
-									contents: [fnFileName, comments ?? ""]
-								};
-							}
-						}
-					});
-					
-				}
-				catch(ex)
-				{
-					let e:Error = ex;
-					console.log(e.message);											
-				}
-				
-			});
-
-			registeredClasses.forEach((v: any, i: any) =>
-			{
-				v.classes.forEach((vc: any, ic: any) =>
-				{
-					let autoComp = v.name + "_fnc_" +  vc.name;
-
-					console.log(vc);
-
-					vscode.languages.registerCompletionItemProvider('sqf', {
-						provideCompletionItems(document, pos, token, ctx){
-							let comp = new vscode.CompletionItem(autoComp, vscode.CompletionItemKind.Function);
-							return [
-								comp
-								];
-							}
-						},
-						autoComp
-					);
-
-					vscode.languages.registerHoverProvider('sqf',
-					{
-						provideHover(document, pos, token)
-						{
-							const range = document.getWordRangeAtPosition(pos);
-            				const word = document.getText(range);
-							if(word === autoComp)
-							{
-								return {
-									contents: [autoComp, vc.comments]
-								};
-							}
-						}
+			vscode.window.showInformationMessage("Found " + config.projects.length + " projects in config. Fetching snippets...");
+			config.projects.forEach((v: string) => {
+				process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+				vscode.window.showInformationMessage("Fetching https://squif.co.za/docs/snippet/" + v);
+				try {
+					const agent = new https.Agent({
+						rejectUnauthorized: false
 					});
 
-				});
+
+					let sel:vscode.DocumentSelector = { scheme: 'file', language: 'sqf' };
+
+
+					axios(
+					{
+						url: "http://squif.co.za/docs/snippet/" + v,
+						method: 'GET',
+						responseType: 'json',
+						httpsAgent: agent
+					})
+					.then(res => {
+						console.log(res);
+						vscode.window.showInformationMessage("Imported " + res.data.length + " snippets for " + v);
+						res.data.forEach((s: any, i: number) => {		
+							context.subscriptions.push(
+								vscode.languages.registerCompletionItemProvider(
+									sel, new SquifCompletionItemProvider(s.prefix, s.body[0], s.description), s.prefix)
+							);
+							context.subscriptions.push(
+								vscode.languages.registerHoverProvider(
+									sel, new SquifHoverProvider(s.prefix, s.description)));
+							context.subscriptions.push(
+							vscode.languages.registerDefinitionProvider(
+								sel, new SquifDefinitionProvider(s.prefix, s.docUrl)));
+						});
+
+						
+					})
+					.catch(error => {						
+						console.log(error);
+						vscode.window.showErrorMessage(error.response);
+					});
+				}
+				catch(ex:any)
+				{
+					console.log(ex);
+				}
 			});
-
-		});
-
+		}
+		
 
 
 	});
 
 	context.subscriptions.push(checker);
-	context.subscriptions.push(disposable);
 }
 
-const walk = (
-	dir: string,
-	done: (err: Error | null, results?: string[]) => void,
-	filter?: (f: string) => boolean
-  ) => {
-	let results: string[] = [];
-	fs.readdir(dir, function (err, list) {
-	  if (err) {
-		return done(err);
-	  }
-	  let pending = list.length;
-	  if (!pending) {
-		return done(null, results);
-	  }
-	  list.forEach((file: string) => {
-		file = path.resolve(dir, file);
-		fs.stat(file, (err2, stat) => {
-		  if (stat && stat.isDirectory()) {
-			walk(file, (err3, res) => {
-			  if (res) {
-				results = results.concat(res);
-			  }
-			  if (!--pending) {
-				done(null, results);
-			  }
-			}, filter);
-		  } else {
-			if (typeof filter === 'undefined' || (filter && filter(file))) {
-			  results.push(file);
-			}
-			if (!--pending) {
-			  done(null, results);
-			}
-		  }
-		});
-	  });
-	});
-  };
+class SquifCompletionItemProvider implements vscode.CompletionItemProvider {
 
+	public _inserts:any = [];
+
+	constructor (label: string, inserts: string, summary?: string)
+	{
+		this._inserts.push({ label: label, insertText: inserts, detail: summary});
+	}
+
+    public provideCompletionItems(
+        document: vscode.TextDocument, position: vscode.Position, token: vscode.CancellationToken):
+        vscode.CompletionItem[] {
+			return this._inserts;
+    }
+}
+
+class SquifHoverProvider implements vscode.HoverProvider {
+	
+	public _hover:any = {};
+	public _word:string = "";
+	public _summary:string = "";
+
+	constructor (word: string, summary: string)
+	{
+		this._word = word;
+		this._summary = summary;
+	}
+
+    public provideHover(
+        document: vscode.TextDocument, position: vscode.Position, token: vscode.CancellationToken):
+        vscode.Hover {
+			const range = document.getWordRangeAtPosition(position);
+			const word = document.getText(range);
+			if(word === this._word)
+			{
+				return {
+					contents: [this._word, this._summary]
+				};
+			}
+			else
+			{
+				return { contents: ["", ""]};
+			}
+    }
+}
+
+class SquifDefinitionProvider implements vscode.DefinitionProvider {
+
+	public _word:string = "";
+	public _uri:string = "";
+
+	constructor (word: string, uri: string)
+	{
+		this._word = word;
+		this._uri = uri;
+	}
+
+    public provideDefinition(
+        document: vscode.TextDocument, position: vscode.Position, token: vscode.CancellationToken):
+        vscode.Location {
+			const range = document.getWordRangeAtPosition(position) ;
+			const word = document.getText(range);
+			if(word === this._word)
+			{
+				return {
+					uri: vscode.Uri.parse( this._uri, false ),
+					range: range!
+				};
+			}
+			else
+			{
+				return null!;
+			}
+    }
+}
 
 // this method is called when your extension is deactivated
 export function deactivate() {}
-
-
-function scrapeFunctions(content:string)
-{
-	const reg = XRegExp(/class CfgFunctions[\s\n\r]*{(?<Functions>.*)};/gims);				
-	let match = XRegExp.exec(content, reg);
-	return match;
-}
-
-function scrapeUserFunc(content:string)
-{
-	const reg = XRegExp(/class (.*?){(?<Classes>.*)};/gims);				
-	let match = XRegExp.exec(content, reg);
-	return match;
-}
-
-function scrapeFile(content:string)
-{
-	const reg = XRegExp(/((params (?<year>\[(.*?)\]);))/gims);				
-	let match = XRegExp.exec(content, reg);
-
-	return match;
-}
-
-function procFile(file:string)
-{
-	
-	let params = JSON.parse( scrapeFile(file)?.groups?.year ?? "[]" );
-	let funcFileName = path.basename(file);
-	let funcName = funcFileName.replace("fn_", "").split(".")[0];
-	let autoComp = "[" + params.join(", ") + "] call " + funcName;
-
-	return {
-		funcName: funcName,
-		funcFileName: funcFileName,
-		params: params,
-		autoComp: autoComp
-	};
-}
-
-function getClass(content:string)
-{
-	const reg = XRegExp(/class (?<Class>\w*)?/gims);				
-	let match = XRegExp.exec(content, reg);
-
-	return match?.groups;
-}
-
-function getComments(content:string = "")
-{
-	const reg = XRegExp(/\/\*(?<Comments>.*?)\*\//gims);				
-	let match = XRegExp.exec(content, reg);
-
-	return match?.groups;
-}
-
-function getFuncPath(content:string = "")
-{
-	const reg = XRegExp(/\/\*(?<Comments>.*?)\*\//gims);				
-	let match = XRegExp.exec(content, reg);
-
-	return match?.groups;
-}
-
-function extractClasses(content:string)
-{
-	let arr:any = [];
-
-	const reg = XRegExp(/class (.*?){.*?};/gims);		
-	XRegExp.forEach(content, reg, (match, i) => {
-		arr.push(match[1].split(" ")[0].split("\\")[0] );
-	});
-	
-	return arr;
-}
