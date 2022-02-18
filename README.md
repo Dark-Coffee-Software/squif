@@ -15,7 +15,7 @@ An Arma 3 VS Code extension tool
     ]
 }
 ```
-- A full list of available packages and documenation can be found [here](https://squif.co.za/docs)
+- A full list of available packages and documenation can be found [here](https://squif.co.za/docs/all)
 - Open then command pallete, and run `squif init`
 - You will get a notification once all functions have been imported.
 - The more packages you load, the longer it may take to import
