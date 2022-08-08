@@ -37,22 +37,22 @@ function activate(context) {
             vscode.window.showInformationMessage("Found " + config.projects.length + " projects in config. Fetching snippets...");
             config.projects.forEach((v) => {
                 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-                vscode.window.showInformationMessage("Fetching https://squif.co.za/docs/snippet/" + v);
+                vscode.window.showInformationMessage("Fetching https://raw.githubusercontent.com/darynvanv/squif-documentations/main/" + v + ".json");
                 try {
                     const agent = new https.Agent({
                         rejectUnauthorized: false
                     });
                     let sel = { scheme: 'file', language: 'sqf' };
                     axios_1.default({
-                        url: "http://squif.co.za/docs/snippet/" + v,
+                        url: "https://raw.githubusercontent.com/darynvanv/squif-documentations/main/" + v + ".json",
                         method: 'GET',
                         responseType: 'json',
                         httpsAgent: agent
                     })
                         .then(res => {
                         console.log(res);
-                        vscode.window.showInformationMessage("Imported " + res.data.length + " snippets for " + v);
-                        res.data.forEach((s, i) => {
+                        vscode.window.showInformationMessage("Imported " + Object.keys(res.data).length + " snippets for " + v);
+                        Object.values(res.data).forEach((s, i) => {
                             context.subscriptions.push(vscode.languages.registerCompletionItemProvider(sel, new SquifCompletionItemProvider(s.prefix, s.body[0], s.description), s.prefix));
                             context.subscriptions.push(vscode.languages.registerHoverProvider(sel, new SquifHoverProvider(s.prefix, s.description)));
                             context.subscriptions.push(vscode.languages.registerDefinitionProvider(sel, new SquifDefinitionProvider(s.prefix, s.docUrl)));
